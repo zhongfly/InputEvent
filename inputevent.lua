@@ -3,7 +3,11 @@
 
 local utils = require("mp.utils")
 local opt = require("mp.options")
+local msg = require("mp.msg")
+local next = next
 
+local watched_properties = {}       -- indexed by property name (used as a set)
+local cached_properties = {}        -- property name -> last known raw value
 local o = {
     --enable external config
     enable_external_config = true,
@@ -78,6 +82,7 @@ local function command_invert(command)
             mp.msg.warn("\"" .. trimed .. "\" doesn't support auto restore.")
         end
     end
+    msg.verbose("command_invert:" .. invert)
     return invert
 end
 
@@ -98,6 +103,62 @@ local function get_kbinfo_table()
         end
     end
     return active
+end
+
+-- https://github.com/mpv-player/mpv/blob/master/player/lua/auto_profiles.lua
+local function on_property_change(name, val)
+    cached_properties[name] = val
+end
+
+local function magic_get(name)
+    -- Lua identifiers can't contain "-", so in order to match with mpv
+    -- property conventions, replace "_" to "-"
+    name = string.gsub(name, "_", "-")
+    if not watched_properties[name] then
+        watched_properties[name] = true
+        mp.observe_property(name, "native", on_property_change)
+        cached_properties[name] = mp.get_property_native(name)
+    end
+    local val = cached_properties[name]
+    return val
+end
+
+local evil_magic = {}
+setmetatable(evil_magic, {
+    __index = function(table, key)
+        -- interpret everything as property, unless it already exists as
+        -- a non-nil global value
+        local v = _G[key]
+        if type(v) ~= "nil" then
+            return v
+        end
+        return magic_get(key)
+    end,
+})
+
+p = {}
+setmetatable(p, {
+    __index = function(table, key)
+        return magic_get(key)
+    end,
+})
+
+local function compile_cond(name, s)
+    local code, chunkname = "return " .. s, "Event " .. name .. " condition"
+    local chunk, err
+    if setfenv then -- lua 5.1
+        chunk, err = loadstring(code, chunkname)
+        if chunk then
+            setfenv(chunk, evil_magic)
+        end
+    else -- lua 5.2
+        chunk, err = load(code, chunkname, "t", evil_magic)
+    end
+    if not chunk then
+        msg.error("Event '" .. name .. "' condition: " .. err)
+        chunk = function() return false end
+    end
+    return chunk
 end
 
 function table:push(element)
@@ -171,7 +232,7 @@ function InputEvent:new(key, on)
 
     Instance.key = key
     Instance.name = "@" .. key
-    Instance.on = table.assign({ click = "" }, on)
+    Instance.on = table.assign({ click = {} }, on)  -- event -> actions {cmd="",cond=function}
     Instance.queue = {}
     Instance.queue_max = { length = 0 }
     Instance.duration = mp.get_property_number("input-doubleclick-time", 300)
@@ -186,6 +247,39 @@ function InputEvent:new(key, on)
     return Instance
 end
 
+function InputEvent:evaluate(event)
+    msg.verbose("Evaluating event: " .. event)
+    local seleted = nil
+    local actions = self.on[event]
+    if not actions or next(actions) == nil then return end
+    for _, action in ipairs(actions) do
+        msg.verbose("Evaluating comand: " .. action.cmd)
+        if type(action.cond) ~= "function" then
+            seleted = action.cmd
+            break
+        else
+            local status, res = pcall(action.cond)
+            if not status then
+                -- errors can be "normal", e.g. in case properties are unavailable
+                msg.verbose("Action condition error on evaluating: " .. res)
+                res = false
+            elseif type(res) ~= "boolean" then
+                msg.verbose("Action condition did not return a boolean, but "
+                            .. type(res) .. ".")
+                res = false
+            end
+            if res then
+                seleted = action.cmd
+                break
+            end
+        end
+    end
+
+    return seleted
+end
+
+local function cmd_filter(i,v) return (v.cmd ~= nil and v.cmd ~= "ignore") end
+
 function InputEvent:emit(event)
     local ignore = event .. "-ignore"
     if self.on[ignore] then
@@ -196,19 +290,28 @@ function InputEvent:emit(event)
         self.on[ignore] = nil
     end
 
-    if event == "press" and self.on["release"] == "ignore" then
-        self.on["release-auto"] = command_invert(self.on["press"])
-    end
-
-    if event == "release" and self.on[event] == "ignore" then
+    if event == "release" and (
+        next(self.on["release"]) == nil or
+        next( table.filter(self.on["release"], cmd_filter) )  == nil
+        )
+    then
         event = "release-auto"
     end
 
-    local cmd = self.on[event]
+    local cmd = self:evaluate(event)
     if not cmd or cmd == "" then
         return
     end
 
+    if event == "press" and (
+        next(self.on["release"]) == nil or
+        next( table.filter(self.on["release"], cmd_filter) )  == nil
+        )
+    then
+        self.on["release-auto"] = {{cmd = command_invert(cmd), cond = nil}}
+    end
+    
+    msg.info("Apply comand: " .. cmd)
     command(cmd)
 end
 
@@ -305,6 +408,8 @@ local function unbind(key)
     bind_map[key]:unbind()
 end
 
+local function comment_filter(i, v) return v:match("^@") end
+
 local function read_conf(conf_path)
     local conf_meta, meta_error = utils.file_info(conf_path)
     if not conf_meta or not conf_meta.is_file then return end -- File doesn"t exist
@@ -313,17 +418,32 @@ local function read_conf(conf_path)
     for line in io.lines(conf_path) do
         line = line:trim()
         if line ~= "" then
-            local key, cmd, comment = line:match("%s*([%S]+)%s+(.-)%s+#%s*(.-)%s*$")
-            if comment and key:sub(1, 1) ~= "#" then
-                local comments = comment:split("#")
-                local events = table.filter(comments, function(i, v) return v:match("^@") end)
-                if events and #events > 0 then
-                    local event = events[1]:match("^@(.*)"):trim()
-                    if event and event ~= "" then
+            local key, cmd, comments = line:match("%s*([%S]+)%s+(.-)%s+#%s*(.-)%s*$")
+            if comments and key:sub(1, 1) ~= "#" then
+                local comment = table.filter(comments:split("#"), comment_filter)
+                if comment and #comment > 0 then
+                    local statement = comment[1]:match("^@(.*)"):trim()
+                    if statement and statement ~= "" then
+                        msg.verbose("statement:" .. statement)
+                        local parts = statement:split("|")
+                        local event, cond = statement ,nil
+                        if #parts > 1 then
+                            event, cond = statement:match("(.-)%s*|%s*(.-)$")
+                            msg.verbose("cond:" .. cond)
+                        end
+
                         if parsed[key] == nil then
                             parsed[key] = {}
                         end
-                        parsed[key][event] = cmd
+                        if parsed[key][event] == nil then
+                            parsed[key][event] = {}
+                        end
+                        local index = next(parsed[key][event]) ~= nil and #parsed[key][event]+1 or 1
+                        local cond_name = string.format("%s-%s-%d", key, event, index)
+                        table.push(parsed[key][event],{
+                            cmd = cmd, 
+                            cond = cond~= nil and compile_cond(cond_name, cond) or nil
+                        })
                     end
                 end
             end
@@ -356,7 +476,10 @@ if o.enable_external_config then
         local active = get_kbinfo_table()
         for key, on in pairs(parsed) do
             if active[key] ~= nil then
-                on.click = active[key]
+                if on.click==nil then
+                    on.click = {}
+                end
+                table.push(on.click, {cmd = active[key]})
             end
             bind(key, on)
         end
