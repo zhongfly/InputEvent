@@ -2,6 +2,17 @@
 -- https://github.com/Natural-Harmonia-Gropius/InputEvent
 
 local utils = require("mp.utils")
+local opt = require("mp.options")
+
+local o = {
+    --enable external config
+    enable_external_config = true,
+
+    --external config file path
+    external_config = "~~/script-opts/inputevent_key.conf",
+}
+
+opt.read_options(o, "inputevent")
 
 local bind_map = {}
 
@@ -41,15 +52,15 @@ local function debounce(func, wait)
     end
 end
 
-function now()
+local function now()
     return mp.get_time() * 1000
 end
 
-function command(command)
+local function command(command)
     return mp.command(command)
 end
 
-function command_invert(command)
+local function command_invert(command)
     local invert = ""
     local command_list = command:split(";")
     for i, v in ipairs(command_list) do
@@ -68,6 +79,25 @@ function command_invert(command)
         end
     end
     return invert
+end
+
+-- https://github.com/mpv-player/mpv/blob/d3a61cfe9844b78362bfce6e5a8280ad6514dbce/player/lua/stats.lua#L434-L447
+local function get_kbinfo_table()
+    -- active keys: only highest priotity of each key
+    local bindings = mp.get_property_native("input-bindings", {})
+    local active = {}  -- map: key-name -> bind-cmd
+    for _, bind in pairs(bindings) do
+        if bind.priority >= 0 and (
+               not active[bind.key] or
+               (active[bind.key].is_weak and not bind.is_weak) or
+               (bind.is_weak == active[bind.key].is_weak and
+                bind.priority > active[bind.key].priority)
+           )
+        then
+            active[bind.key] = bind.cmd
+        end
+    end
+    return active
 end
 
 function table:push(element)
@@ -255,7 +285,7 @@ function InputEvent:rebind(diff)
     self:bind()
 end
 
-function bind(key, on)
+local function bind(key, on)
     key = #key == 1 and key or key:upper()
 
     if type(on) == "string" then
@@ -271,18 +301,16 @@ function bind(key, on)
     bind_map[key]:bind()
 end
 
-function unbind(key)
+local function unbind(key)
     bind_map[key]:unbind()
 end
 
-function bind_from_input_conf()
-    local input_conf = mp.get_property_native("input-conf")
-    local input_conf_path = mp.command_native({ "expand-path", input_conf == "" and "~~/input.conf" or input_conf })
-    local input_conf_meta, meta_error = utils.file_info(input_conf_path)
-    if not input_conf_meta or not input_conf_meta.is_file then return end -- File doesn"t exist
+local function read_conf(conf_path)
+    local conf_meta, meta_error = utils.file_info(conf_path)
+    if not conf_meta or not conf_meta.is_file then return end -- File doesn"t exist
 
     local parsed = {}
-    for line in io.lines(input_conf_path) do
+    for line in io.lines(conf_path) do
         line = line:trim()
         if line ~= "" then
             local key, cmd, comment = line:match("%s*([%S]+)%s+(.-)%s+#%s*(.-)%s*$")
@@ -301,9 +329,7 @@ function bind_from_input_conf()
             end
         end
     end
-    for key, on in pairs(parsed) do
-        bind(key, on)
-    end
+    return parsed
 end
 
 mp.observe_property("input-doubleclick-time", "native", function(_, new_duration)
@@ -321,4 +347,25 @@ end)
 mp.register_script_message("bind", bind)
 mp.register_script_message("unbind", unbind)
 
-bind_from_input_conf()
+local input_conf = mp.get_property_native("input-conf")
+local input_conf_path = mp.command_native({ "expand-path", input_conf == "" and "~~/input.conf" or input_conf })
+if o.enable_external_config then
+    local external_config_path = mp.command_native({ "expand-path", o.external_config })
+    local parsed = read_conf(external_config_path)
+    if parsed then
+        local active = get_kbinfo_table()
+        for key, on in pairs(parsed) do
+            if active[key] ~= nil then
+                on.click = active[key]
+            end
+            bind(key, on)
+        end
+    end
+else
+    local parsed = read_conf(input_conf_path)
+    if parsed then
+        for key, on in pairs(parsed) do
+            bind(key, on)
+        end
+    end
+end
