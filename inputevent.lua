@@ -291,6 +291,7 @@ function InputEvent:emit(event)
     end
 
     if event == "release" and (
+        self.on["release"] == nil or
         next(self.on["release"]) == nil or
         next( table.filter(self.on["release"], cmd_filter) )  == nil
         )
@@ -304,6 +305,7 @@ function InputEvent:emit(event)
     end
 
     if event == "press" and (
+        self.on["release"] == nil or
         next(self.on["release"]) == nil or
         next( table.filter(self.on["release"], cmd_filter) )  == nil
         )
