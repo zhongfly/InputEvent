@@ -140,17 +140,38 @@ local function command_invert(command)
     for i, v in ipairs(command_list) do
         local trimed = v:trim()
         local subs = trimed:split("%s*")
-        local prefix = table.has(prefixes, subs[1]) and subs[1] or ""
-        local command = subs[prefix == "" and 1 or 2]
-        local property = subs[prefix == "" and 2 or 3]
-        local value = mp.get_property(property)
-        local semi = i == #command_list and "" or ";"
-
-        if table.has(commands, command) then
-            invert = invert .. prefix .. " set " .. property .. " " .. value .. semi
-        else
-            mp.msg.warn("\"" .. trimed .. "\" doesn't support auto restore.")
+        local prefix, command, property = "", nil, nil
+        for _, s in ipairs(subs) do
+            local sub = s:trim()
+            if not command and table.has(prefixes, sub) then
+                prefix = prefix .. " " .. sub
+            elseif not command then
+                if table.has(commands, sub) then
+                    command = sub
+                else
+                    msg.warn("\"" .. trimed .. "\" doesn't support auto restore.")
+                    break
+                end
+            elseif command and not property then
+                property = sub
+                break
+            end
         end
+
+        repeat -- workaround continue
+            if not command or not property then
+                msg.warn("\"" .. trimed .. "\" doesn't support auto restore.")
+                break
+            end
+
+            local value = mp.get_property(property)
+            if value then
+                local semi = i == #command_list and "" or ";"
+                invert = invert .. prefix:trim() .. " set " .. property .. " " .. value .. semi
+            else
+                msg.warn("\"" .. trimed .. "\" doesn't support auto restore.")
+            end
+        until true
     end
     msg.verbose("command_invert:" .. invert)
     return invert
