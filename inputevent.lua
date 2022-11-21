@@ -37,6 +37,76 @@ local prefixes = { "osd-auto", "no-osd", "osd-bar", "osd-msg", "osd-msg-bar", "r
 -- https://mpv.io/manual/master/#list-of-input-commands
 local commands = { "set", "cycle", "add", "multiply" }
 
+function table:isEmpty()
+    if next(self) == nil then
+        return true
+    else
+        return false
+    end
+end
+
+function table:push(element)
+    self[#self + 1] = element
+    return self
+end
+
+function table:assign(source)
+    for key, value in pairs(source) do
+        self[key] = value
+    end
+    return self
+end
+
+function table:has(element)
+    for _, value in ipairs(self) do
+        if value == element then
+            return true
+        end
+    end
+    return false
+end
+
+function table:filter(filter)
+    local nt = {}
+    for index, value in ipairs(self) do
+        if (filter(index, value)) then
+            nt = table.push(nt, value)
+        end
+    end
+    return nt
+end
+
+function table:remove(element)
+    return table.filter(self, function(i, v) return v ~= element end)
+end
+
+function table:join(separator)
+    local result = ""
+    for i, v in ipairs(self) do
+        local value = type(v) == "string" and v or tostring(v)
+        local semi = i == #self and "" or separator
+        result = result .. value .. semi
+    end
+    return result
+end
+
+function string:trim()
+    return (self:gsub("^%s*(.-)%s*$", "%1"))
+end
+
+function string:replace(pattern, replacement)
+    local result, n = self:gsub(pattern, replacement)
+    return result
+end
+
+function string:split(separator)
+    local fields = {}
+    local separator = separator or ":"
+    local pattern = string.format("([^%s]+)", separator)
+    local copy = self:gsub(pattern, function(c) fields[#fields + 1] = c end)
+    return fields
+end
+
 local function debounce(func, wait)
     func = type(func) == "function" and func or function() end
     wait = type(wait) == "number" and wait / 1000 or 0
@@ -119,8 +189,7 @@ local function magic_get(name)
         mp.observe_property(name, "native", on_property_change)
         cached_properties[name] = mp.get_property_native(name)
     end
-    local val = cached_properties[name]
-    return val
+    return cached_properties[name]
 end
 
 local evil_magic = {}
@@ -161,68 +230,6 @@ local function compile_cond(name, s)
     return chunk
 end
 
-function table:push(element)
-    self[#self + 1] = element
-    return self
-end
-
-function table:assign(source)
-    for key, value in pairs(source) do
-        self[key] = value
-    end
-    return self
-end
-
-function table:has(element)
-    for _, value in ipairs(self) do
-        if value == element then
-            return true
-        end
-    end
-    return false
-end
-
-function table:filter(filter)
-    local nt = {}
-    for index, value in ipairs(self) do
-        if (filter(index, value)) then
-            nt = table.push(nt, value)
-        end
-    end
-    return nt
-end
-
-function table:remove(element)
-    return table.filter(self, function(i, v) return v ~= element end)
-end
-
-function table:join(separator)
-    local result = ""
-    for i, v in ipairs(self) do
-        local value = type(v) == "string" and v or tostring(v)
-        local semi = i == #self and "" or separator
-        result = result .. value .. semi
-    end
-    return result
-end
-
-function string:trim()
-    return (self:gsub("^%s*(.-)%s*$", "%1"))
-end
-
-function string:replace(pattern, replacement)
-    local result, n = self:gsub(pattern, replacement)
-    return result
-end
-
-function string:split(separator)
-    local fields = {}
-    local separator = separator or ":"
-    local pattern = string.format("([^%s]+)", separator)
-    local copy = self:gsub(pattern, function(c) fields[#fields + 1] = c end)
-    return fields
-end
-
 local InputEvent = {}
 
 function InputEvent:new(key, on)
@@ -251,7 +258,7 @@ function InputEvent:evaluate(event)
     msg.verbose("Evaluating event: " .. event)
     local seleted = nil
     local actions = self.on[event]
-    if not actions or next(actions) == nil then return end
+    if not actions or table.isEmpty(actions) then return end
     for _, action in ipairs(actions) do
         msg.verbose("Evaluating comand: " .. action.cmd)
         if type(action.cond) ~= "function" then
@@ -264,8 +271,7 @@ function InputEvent:evaluate(event)
                 msg.verbose("Action condition error on evaluating: " .. res)
                 res = false
             elseif type(res) ~= "boolean" then
-                msg.verbose("Action condition did not return a boolean, but "
-                            .. type(res) .. ".")
+                msg.verbose("Action condition did not return a boolean, but " .. type(res) .. ".")
                 res = false
             end
             if res then
@@ -278,7 +284,7 @@ function InputEvent:evaluate(event)
     return seleted
 end
 
-local function cmd_filter(i,v) return (v.cmd ~= nil and v.cmd ~= "ignore") end
+local function cmd_filter(i,v) return (v.cmd ~= nil and v.cmd ~= "ignore") endd
 
 function InputEvent:emit(event)
     local ignore = event .. "-ignore"
@@ -292,8 +298,8 @@ function InputEvent:emit(event)
 
     if event == "release" and (
         self.on["release"] == nil or
-        next(self.on["release"]) == nil or
-        next( table.filter(self.on["release"], cmd_filter) )  == nil
+        table.isEmpty(self.on["release"]) or
+        table.isEmpty( table.filter(self.on["release"], cmd_filter) )
         )
     then
         event = "release-auto"
@@ -306,14 +312,15 @@ function InputEvent:emit(event)
 
     if event == "press" and (
         self.on["release"] == nil or
-        next(self.on["release"]) == nil or
-        next( table.filter(self.on["release"], cmd_filter) )  == nil
+        table.isEmpty(self.on["release"]) or
+        table.isEmpty( table.filter(self.on["release"], cmd_filter) )
         )
     then
         self.on["release-auto"] = {{cmd = command_invert(cmd), cond = nil}}
     end
     
-    msg.info("Apply comand: " .. cmd)
+
+    msg.verbose("Apply comand: " .. cmd)
     command(cmd)
 end
 
@@ -414,7 +421,10 @@ local function comment_filter(i, v) return v:match("^@") end
 
 local function read_conf(conf_path)
     local conf_meta, meta_error = utils.file_info(conf_path)
-    if not conf_meta or not conf_meta.is_file then return end -- File doesn"t exist
+    if not conf_meta or not conf_meta.is_file then
+        msg.error("File not exist : " .. conf_path)
+        return
+    end -- File doesn't exist
 
     local parsed = {}
     for line in io.lines(conf_path) do
@@ -426,12 +436,11 @@ local function read_conf(conf_path)
                 if comment and #comment > 0 then
                     local statement = comment[1]:match("^@(.*)"):trim()
                     if statement and statement ~= "" then
-                        msg.verbose("statement:" .. statement)
+                        msg.verbose(string.format("Statement for [%s]:%s",key,statement))
                         local parts = statement:split("|")
                         local event, cond = statement ,nil
                         if #parts > 1 then
                             event, cond = statement:match("(.-)%s*|%s*(.-)$")
-                            msg.verbose("cond:" .. cond)
                         end
 
                         if parsed[key] == nil then
@@ -440,11 +449,12 @@ local function read_conf(conf_path)
                         if parsed[key][event] == nil then
                             parsed[key][event] = {}
                         end
-                        local index = next(parsed[key][event]) ~= nil and #parsed[key][event]+1 or 1
+
+                        local index = table.isEmpty(parsed[key][event]) and 1 or #parsed[key][event]+1
                         local cond_name = string.format("%s-%s-%d", key, event, index)
                         table.push(parsed[key][event],{
                             cmd = cmd, 
-                            cond = cond~= nil and compile_cond(cond_name, cond) or nil
+                            cond = cond ~= nil and compile_cond(cond_name, cond) or nil
                         })
                     end
                 end
@@ -474,7 +484,7 @@ local input_conf_path = mp.command_native({ "expand-path", input_conf == "" and 
 if o.enable_external_config then
     local external_config_path = mp.command_native({ "expand-path", o.external_config })
     local parsed = read_conf(external_config_path)
-    if parsed then
+    if parsed and not table.isEmpty(parsed) then
         local active = get_kbinfo_table()
         for key, on in pairs(parsed) do
             if active[key] ~= nil then
@@ -488,7 +498,7 @@ if o.enable_external_config then
     end
 else
     local parsed = read_conf(input_conf_path)
-    if parsed then
+    if parsed and not table.isEmpty(parsed) then
         for key, on in pairs(parsed) do
             bind(key, on)
         end
