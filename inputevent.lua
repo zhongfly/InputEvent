@@ -340,6 +340,13 @@ function InputEvent:emit(event)
         self.on["release-auto"] = {{cmd = command_invert(cmd), cond = nil}}
     end
 
+    local expand = mp.command_native({'expand-text', cmd})
+    if #cmd:split(";") == #expand:split(";") then
+        cmd = mp.command_native({'expand-text', cmd})
+    else
+        mp.msg.warn("Unsafe property-expansion detected.")
+    end
+
     msg.verbose("Apply comand: " .. cmd)
     command(cmd)
 end
