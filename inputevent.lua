@@ -10,7 +10,7 @@ local watched_properties = {}       -- indexed by property name (used as a set)
 local cached_properties = {}        -- property name -> last known raw value
 local o = {
     --enable external config
-    enable_external_config = true,
+    enable_external_config = false,
 
     --external config file path
     external_config = "~~/script-opts/inputevent_key.conf",
@@ -479,7 +479,7 @@ local function read_conf(conf_path)
 
                         local index = table.isEmpty(parsed[key][event]) and 1 or #parsed[key][event]+1
                         local cond_name = string.format("%s-%s-%d", key, event, index)
-                        table.push(parsed[key][event],{
+                        table.insert(parsed[key][event], 1,{
                             cmd = cmd, 
                             cond = cond ~= nil and compile_cond(cond_name, cond) or nil
                         })
