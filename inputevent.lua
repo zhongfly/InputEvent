@@ -305,7 +305,7 @@ function InputEvent:evaluate(event)
     return seleted
 end
 
-local function cmd_filter(i,v) return (v.cmd ~= nil and v.cmd ~= "ignore") endd
+local function cmd_filter(i,v) return (v.cmd ~= nil and v.cmd ~= "ignore") end
 
 function InputEvent:emit(event)
     local ignore = event .. "-ignore"
@@ -339,7 +339,6 @@ function InputEvent:emit(event)
     then
         self.on["release-auto"] = {{cmd = command_invert(cmd), cond = nil}}
     end
-    
 
     msg.verbose("Apply comand: " .. cmd)
     command(cmd)
