@@ -1,4 +1,7 @@
 # InputEvent
+__修改版增加了对外部配置、条件语句的支持__
+
+__详细变化见文件[inputevent.conf](script-opts/inputevent.conf)，与[inputevent_key.conf](script-opts/inputevent_key.conf)__
 
 This script enhanced `input.conf` with better, conflict-free, low-latency event mechanism.
 
@@ -12,6 +15,8 @@ Now the supported events are:
 `press`, `release`, `repeat`, `click`, `double_click`, `triple_click`, `quatra_click`, `penta_click`
 
 Compound events e.g. `click` will be emitted as soon as possible to get lowest latency.
+
+
 
 ## Installation
 
