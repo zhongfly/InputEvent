@@ -456,9 +456,9 @@ local function read_conf(conf_path)
     local parsed = {}
     for line in io.lines(conf_path) do
         line = line:trim()
-        if line ~= "" then
+        if line ~= "" and line:sub(1, 1) ~= "#" then
             local key, cmd, comments = line:match("%s*([%S]+)%s+(.-)%s+#%s*(.-)%s*$")
-            if comments and key:sub(1, 1) ~= "#" then
+            if comments then
                 local comment = table.filter(comments:split("#"), comment_filter)
                 if comment and #comment > 0 then
                     local statement = comment[1]:match("^@(.*)"):trim()
