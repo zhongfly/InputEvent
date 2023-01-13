@@ -325,6 +325,10 @@ function InputEvent:emit(event)
         event = "release-auto"
     end
 
+    if event == "repeat" and self.on[event] == "ignore" then
+        event = "click"
+    end
+
     local cmd = self:evaluate(event)
     if not cmd or cmd == "" then
         return
