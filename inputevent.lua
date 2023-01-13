@@ -263,6 +263,7 @@ function InputEvent:new(key, on)
     Instance.queue = {}
     Instance.queue_max = { length = 0 }
     Instance.duration = mp.get_property_number("input-doubleclick-time", 300)
+    Instance.ignored = {}
 
     for _, event in ipairs(event_pattern) do
         if Instance.on[event.to] and event.length > 1 then
@@ -307,13 +308,12 @@ end
 local function cmd_filter(i,v) return (v.cmd ~= nil and v.cmd ~= "ignore") end
 
 function InputEvent:emit(event)
-    local ignore = event .. "-ignore"
-    if self.on[ignore] then
-        if now() - self.on[ignore] < self.duration then
+    if self.ignored[event] then
+        if now() - self.ignored[event] < self.duration then
             return
         end
 
-        self.on[ignore] = nil
+        self.ignored[event] = nil
     end
 
     if event == "release" and (
@@ -358,7 +358,7 @@ function InputEvent:handler(event)
     end
 
     if event == "down" then
-        self.on["repeat-ignore"] = now()
+        self:ignore("repeat")
     end
 
     if event == "repeat" then
@@ -403,6 +403,12 @@ function InputEvent:exec()
     end
 
     self.queue = {}
+end
+
+function InputEvent:ignore(event, timeout)
+    timeout = timeout or 0
+
+    self.ignored[event] = now() + timeout
 end
 
 function InputEvent:bind()
@@ -499,7 +505,7 @@ end)
 mp.observe_property("focused", "native", function(_, focused)
     local binding = bind_map["MBTN_LEFT"]
     if not binding or not focused then return end
-    binding.on["click-ignore"] = now() + 100
+    binding:ignore("click", 100)
 end)
 
 mp.register_script_message("bind", bind)
