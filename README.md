@@ -1,7 +1,10 @@
 # InputEvent
-__修改版增加了对外部配置、条件语句的支持__
 
-__详细变化见文件[inputevent.conf](script-opts/inputevent.conf)，与[inputevent_key.conf](script-opts/inputevent_key.conf)__
+__UPDATE__: 修改版放弃维护，条件语句的支持变为独立脚本[command_cond](https://github.com/zhongfly/command_cond)
+
+修改版增加了对外部配置、条件语句的支持
+
+详细变化见文件[inputevent.conf](script-opts/inputevent.conf)，与[inputevent_key.conf](script-opts/inputevent_key.conf)
 
 This script enhanced `input.conf` with better, conflict-free, low-latency event mechanism.
 
